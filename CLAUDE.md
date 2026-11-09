@@ -26,7 +26,7 @@ Desde 2026-11-07 se trabaja en **`hermes-v023`** (sandbox por defecto de NemoCla
 | Reglas aprobadas a mano | my-hermes: `curl_codeload_github_zip` (GET), `allow_models_dev_443`, `allow_portal_nousresearch_com_443`. hermes-v023: solo `curl_codeload_github_zip` (GET, 2026-11-07); models.dev y demás llamadas de fondo quedan sin aprobar a propósito |
 | Policy Advisor (ambos) | `agent_policy_proposals_enabled=true`, `ocsf_json_enabled=true`, `proposal_approval_mode` sin definir (= manual) |
 | Dashboard / API (my-hermes) | http://127.0.0.1:18789/ (chat = TUI de Hermes en el navegador) / http://127.0.0.1:8642/v1 |
-| Skills locales | `nemo-rl-session-memory`, `ethos-orchestrate/explore/write` (de github.com/NVIDIA/skills) y `git-clone-restricted-network` y `test-coverage` (las escribió Hermes solo). Copia en `hermes/skills/` |
+| Skills locales | `nemo-rl-session-memory`, `ethos-orchestrate/explore/write` (de github.com/NVIDIA/skills) y `git-clone-restricted-network` y `test-coverage` (las escribió Hermes solo), y `code-wiki` (opcional oficial de Hermes, copiada de `/opt/hermes/optional-skills/software-development/code-wiki`, 2026-11-09). Copia en `hermes/skills/`; instalar.sh instala todo lo que haya ahí |
 
 ## Estructura
 
@@ -40,7 +40,7 @@ hermes/SOUL.md            identidad + TODAS las reglas (red, memoria, código, M
 hermes/AGENTS.md          solo lo de la carpeta /sandbox (2 líneas) -> /sandbox/AGENTS.md
 hermes/backup/SOUL.md     SOUL.md original de NemoClaw (y *-antes-reorg-20261108.md: el reparto anterior; SOUL-antes-limpieza-20261108.md)
 hermes/plugins/           plugin reglas_codigo (barandillas de código) + su autoprueba
-hermes/skills/            copia de las 6 skills locales (instalar: nemohermes <sbx> skill install hermes/skills/<s>/)
+hermes/skills/            copia de las 7 skills locales (instalar: nemohermes <sbx> skill install hermes/skills/<s>/)
 revisor/revisor.py        revisor de propuestas de red con LLM (ver abajo)
 revisor/estado.json       veredictos ya dados (borrar para re-revisar)
 pruebas/inyeccion/        archivo trampa de inyección de prompt (prueba que Hermes pasó)
