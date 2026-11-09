@@ -1,0 +1,45 @@
+# Imagen de sandbox para correr Hermes Agent dentro de NVIDIA OpenShell.
+# Sin NemoClaw: imagen propia + provider profile propio.
+#
+# Build:  docker build -t hermes-sbx:local -f Dockerfile.hermes .
+#
+# Notas:
+# - La API key NO va en la imagen. OpenShell la inyecta como placeholder en
+#   NVIDIA_API_KEY y la sustituye solo hacia integrate.api.nvidia.com.
+# - Política por defecto de OpenShell (Landlock): lectura solo en /bin /usr /lib
+#   /etc /proc /var/log; escritura solo en /tmp y el directorio de trabajo.
+#   Por eso todo lo de la imagen va bajo /usr y el estado de Hermes (HERMES_HOME,
+#   HOME, caches) vive en /tmp. El proceso corre como UID 1000.
+
+FROM python:3.12-slim-bookworm
+
+ARG HERMES_VERSION=0.19.0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash ca-certificates curl git ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+
+# Las dependencias se descargan en el build (red del host), no dentro del sandbox.
+RUN pip install --no-cache-dir "hermes-agent==${HERMES_VERSION}"
+
+# Wrapper: prepara HERMES_HOME/HOME escribibles en /tmp, crea config.yaml con el proveedor
+# nativo "nvidia" de Hermes y el modelo de HERMES_SBX_MODEL, y lanza hermes con tus args.
+RUN printf '%s\n' \
+      '#!/bin/sh' \
+      'set -e' \
+      ': "${HERMES_HOME:=/tmp/hermes}"' \
+      'export HERMES_HOME' \
+      '[ -n "${HOME:-}" ] && [ -w "$HOME" ] || HOME=/tmp/hermes-home' \
+      'export HOME XDG_CACHE_HOME="$HOME/.cache" XDG_CONFIG_HOME="$HOME/.config"' \
+      'mkdir -p "$HERMES_HOME" "$HOME"' \
+      '[ -f "$HERMES_HOME/config.yaml" ] || printf "model:\n  provider: nvidia\n  default: %s\n" "${HERMES_SBX_MODEL:-nvidia/nemotron-3.5-lightning-30b-a3b}" > "$HERMES_HOME/config.yaml"' \
+      'exec hermes "$@"' \
+      > /usr/local/bin/hermes-sbx \
+    && chmod 755 /usr/local/bin/hermes-sbx
+
+RUN mkdir -p /workspace && chmod 1777 /workspace
+WORKDIR /workspace
+
+ENV HERMES_HOME=/tmp/hermes \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1

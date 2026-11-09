@@ -1,0 +1,22 @@
+# Secretos y basura del sistema
+.env
+.env.*
+.DS_Store
+__pycache__/
+*.pyc
+
+# El fork se reconstruye con instalar.sh desde fork/hermes-v023.patch
+nemoclaw-hermes-v023/
+
+# Historia y estado local del laboratorio (se quedan en la Mac original)
+hermes/backup/
+pruebas/inyeccion/
+pruebas/revisor/
+revisor/
+skills-nvidia-catalogo.txt
+pruebas-openshell.sh
+
+# legacy/: solo se suben los scripts; la imagen de Ubuntu y los binarios de OpenShell 0.1.7 no
+legacy/*.raw.gz
+legacy/colima-parts/
+legacy/vendor/*.tar.gz

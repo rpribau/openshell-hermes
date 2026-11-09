@@ -1,0 +1,563 @@
+diff --git a/agents/hermes/Dockerfile.base b/agents/hermes/Dockerfile.base
+index 125ab32..cf0a223 100644
+--- a/agents/hermes/Dockerfile.base
++++ b/agents/hermes/Dockerfile.base
+@@ -76,13 +76,22 @@ ENV HERMES_SKIP_CHMOD=1
+ # pyproject.toml, HERMES_TARBALL_SHA256 the GitHub tarball checksum, and
+ # HERMES_NPM_INTEGRITY the `npm view hermes-agent@<semver> dist.integrity`
+ # sha512 used as a registry cross-check at build time.
+-# Calver tag v2026.9.14 = Hermes Agent v0.21.3.
+-ARG HERMES_VERSION=v2026.9.14
+-ARG HERMES_SEMVER=0.21.3
+-ARG HERMES_TARBALL_SHA256=47df72ebd3f9c96d806a94541163f7fe7d7ce5b84f85c1d3787e6dfeea1d7834
+-ARG HERMES_NPM_INTEGRITY=sha512-LvPt2/1z6hm4pTRJu34F6uAkBVSlSt94QeZp8fMBLFqASU9/wv7iMODSGMzF1WmrpNENXYGMnWN8s9hi/EUM5Q==
++# hermes v0.23 fork: Hermes moved back to semver tags; v0.23.0 is pinned by
++# hand (scripts/update-hermes-agent.sh is not used for this fork).
++# HERMES_COMMIT is the tag's commit, written into install-stamp.json because
++# the tarball has no .git and pyproject.toml declares version 0.0.0.
++ARG HERMES_VERSION=v0.23.0
++ARG HERMES_SEMVER=0.23.0
++ARG HERMES_COMMIT=2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19
++ARG HERMES_TARBALL_SHA256=4879a10c7f125281ad88e9f2c339c807fd59c6f40588bdcd652781e9425320fd
++ARG HERMES_NPM_INTEGRITY=sha512-FveIF63UodTiiQD5soAGedJSidkWtlWOTxQmOhfk0yrZVqWnEsuHidsVhmpPBHKuOdmefg9aeNprBQzZAxIIJg==
+ ARG HERMES_UV_EXTRAS="anthropic messaging web pty mcp acp"
+-ARG UV_VERSION=0.11.33
++# hermes v0.23 fork: uv.lock is revision 5; 0.13.5 matches pm/lock.json.
++ARG UV_VERSION=0.13.5
++# hermes v0.23 fork: Hermes v0.23 supports only Python 3.14 (uv.lock covers
++# python_version >= '3.14'), so the venv uses a uv-managed CPython 3.14.9
++# (pm/lock.json pins 3.14.9+20261021) instead of Debian's Python 3.13.
++ARG HERMES_PYTHON_VERSION=3.14.9
+ 
+ # build-essential: hermes-agent >= 0.16.0 ships npm dependencies that need a
+ # node-gyp native build during `npm ci`; the runtime Dockerfile purges build
+@@ -370,6 +379,8 @@ RUN mkdir -p /sandbox/.hermes/memories \
+ 
+ # Hermes installs opt-in dependencies here instead of the sealed root venv.
+ # Hermes appends this directory after its trusted site-packages at runtime.
++# hermes v0.23 fork: v0.23 no longer reads HERMES_LAZY_INSTALL_TARGET (PM owns
++# opt-in deps); kept because the final image still references the directory.
+ ENV HERMES_LAZY_INSTALL_TARGET=/sandbox/.hermes/lazy-packages
+ 
+ # Pre-create shell init files for the sandbox user.
+@@ -396,7 +407,7 @@ RUN printf '%s\n' \
+ # The image prebakes only the extras selected for the managed Hermes image:
+ # anthropic (native Anthropic Messages routing), messaging
+ # (Telegram, Discord, Slack, WeChat, WhatsApp), web (API health/UI runtime),
+-# pty (optional browser TUI bridge), mcp (managed MCP bridge consumer), and
++# pty (no-op alias in v0.23; ptyprocess is a core dependency), mcp (managed MCP bridge consumer), and
+ # acp (packaged stdio Agent Client Protocol entrypoint). ACP sessions,
+ # workspace mapping, and editor compatibility remain outside this dependency gate.
+ # These extras are resolved from the selected Hermes release's uv.lock via
+@@ -406,18 +417,9 @@ RUN printf '%s\n' \
+ # final image when selected.
+ # New Hermes integrations should be installed by the agent workflow when they
+ # are enabled rather than shipped in the base image by default.
+-# Hermes 0.21.3 keeps agent-browser outside its root dependency graph. The
+-# root-owned runtime below installs the pinned package from a reviewed lockfile.
+-# The WhatsApp adapter ships a separate Node project under
+-# scripts/whatsapp-bridge whose dependencies Hermes otherwise installs lazily
+-# on the first `hermes whatsapp` run. That lazy `npm install` targets
+-# /opt/hermes/scripts/whatsapp-bridge/node_modules, which is root-owned and
+-# read-only for the sandbox user at runtime, so it fails with EACCES before the
+-# QR pairing screen is reached (#4764). Bake the bridge's node_modules into the
+-# image here, alongside the ui-tui/web installs, so runtime pairing needs no
+-# writes under /opt/hermes. If a future Hermes tarball removes the lockfile,
+-# skip rather than doing a nondeterministic dependency resolve during image
+-# build.
++# hermes v0.23 fork: the agent-browser runtime and the baked WhatsApp bridge
++# node_modules (#4764) were removed; both depended on NemoClaw patches written
++# for 0.21.3.
+ RUN pip3 install --no-cache-dir --break-system-packages "uv==${UV_VERSION}" \
+     && uv_version_output="$(uv --version)" \
+     && uv_command="${uv_version_output%% *}" \
+@@ -429,19 +431,18 @@ RUN pip3 install --no-cache-dir --break-system-packages "uv==${UV_VERSION}" \
+ # Upstream tests are not part of the production runtime and can contain
+ # intentionally hostile security-test fixtures. Remove them in the extraction
+ # RUN so their bytes never enter a published image layer.
+-COPY agents/hermes/security-dependencies.patch /tmp/hermes-security-dependencies.patch
+-COPY agents/hermes/agent-browser-runtime/package.json \
+-    agents/hermes/agent-browser-runtime/package-lock.json \
+-    /opt/nemoclaw-agent-browser-runtime/
+-COPY agents/hermes/whatsapp-proxy.patch /tmp/hermes-whatsapp-proxy.patch
++# hermes v0.23 fork: security-dependencies.patch and whatsapp-proxy.patch
++# target 0.21.3 sources and no longer apply; they are not copied or applied.
+ COPY scripts/checks/download-hermes-source-archive.sh /tmp/nemoclaw-download-hermes-source-archive.sh
+-# Keep the prior and active release identities sealed while selecting 0.21.3
+-# through the defaults above. Both tuples remain exact source and registry
+-# trust anchors; no mutable release selector is accepted.
++# Keep the prior and active release identities sealed while selecting 0.23.0
++# through the defaults above. Every tuple remains an exact source and registry
++# trust anchor; no mutable release selector is accepted.
++# hermes v0.23 fork: added the v0.23.0 tuple and the install stamp below.
+ # hadolint ignore=DL4006
+ RUN case "${HERMES_VERSION}|${HERMES_SEMVER}|${HERMES_TARBALL_SHA256}|${HERMES_NPM_INTEGRITY}" in \
+         'v2026.8.27|0.20.6|e622723b5bf3cd6c1db974d92d32242f1cb63f61c1112b6f708b34d619ef0fc7|sha512-s5q1IEBifCBb77QMwkse4MRaAaoZSxIa4IkicIO3jL7MIdq15YvnSyiNvsTOWNBi6t3shFpIg+H7+9MJsOiSkg==') ;; \
+         'v2026.9.14|0.21.3|47df72ebd3f9c96d806a94541163f7fe7d7ce5b84f85c1d3787e6dfeea1d7834|sha512-LvPt2/1z6hm4pTRJu34F6uAkBVSlSt94QeZp8fMBLFqASU9/wv7iMODSGMzF1WmrpNENXYGMnWN8s9hi/EUM5Q==') ;; \
++        'v0.23.0|0.23.0|4879a10c7f125281ad88e9f2c339c807fd59c6f40588bdcd652781e9425320fd|sha512-FveIF63UodTiiQD5soAGedJSidkWtlWOTxQmOhfk0yrZVqWnEsuHidsVhmpPBHKuOdmefg9aeNprBQzZAxIIJg==') ;; \
+         *) echo "ERROR: unreviewed Hermes release identity tuple" >&2; exit 1 ;; \
+     esac \
+     && mkdir -p /opt/hermes \
+@@ -450,28 +451,24 @@ RUN case "${HERMES_VERSION}|${HERMES_SEMVER}|${HERMES_TARBALL_SHA256}|${HERMES_N
+     && sha256sum -c /tmp/hermes.tar.gz.sha256 \
+     && tar -xzf /tmp/hermes.tar.gz -C /opt/hermes --strip-components=1 \
+     && rm -rf /opt/hermes/tests \
+-    && git -C /opt/hermes apply --check /tmp/hermes-security-dependencies.patch \
+-    && git -C /opt/hermes apply /tmp/hermes-security-dependencies.patch \
+-    && git -C /opt/hermes apply --check /tmp/hermes-whatsapp-proxy.patch \
+-    && git -C /opt/hermes apply /tmp/hermes-whatsapp-proxy.patch \
++    && python3 -I /opt/hermes/scripts/write_install_stamp.py \
++        -o /opt/hermes/install-stamp.json \
++        --commit "${HERMES_COMMIT}" \
++        --base-version "${HERMES_SEMVER}" \
++        --display-version "${HERMES_SEMVER}" \
++        --distance 0 \
++        --source nemoclaw \
++        --update-mechanism external \
+     && rm /tmp/hermes.tar.gz /tmp/hermes.tar.gz.sha256 \
+-        /tmp/hermes-security-dependencies.patch \
+-        /tmp/hermes-whatsapp-proxy.patch \
+         /tmp/nemoclaw-download-hermes-source-archive.sh
+ 
+-# Cross-check the pinned release against two independent sources before
+-# installing anything from it: the extracted tarball must declare
+-# HERMES_SEMVER in pyproject.toml (calver tag -> semver mapping), and the
+-# hermes-agent package published on npm for that semver must still carry the
+-# pinned sha512 integrity. Mirrors the OpenClaw npm integrity check in the
+-# root Dockerfile.base.
++# Cross-check the pinned release against the hermes-agent package published on
++# npm for that semver: it must still carry the pinned sha512 integrity.
++# Mirrors the OpenClaw npm integrity check in the root Dockerfile.base.
++# hermes v0.23 fork: removed the pyproject.toml version check; v0.23.0's
++# pyproject.toml declares version 0.0.0 and the version lives in the stamp.
+ # hadolint ignore=DL4006
+ RUN set -eu; \
+-    tarball_semver=$(sed -n 's/^version = "\(.*\)"/\1/p' /opt/hermes/pyproject.toml | head -1); \
+-    if [ "$tarball_semver" != "${HERMES_SEMVER}" ]; then \
+-        echo "Error: Hermes ${HERMES_VERSION} tarball declares version ${tarball_semver}, expected ${HERMES_SEMVER}" >&2; \
+-        exit 1; \
+-    fi; \
+     npm_integrity_cache=/tmp/hermes-npm-integrity-cache; \
+     registry_integrity=$(npm_config_cache="$npm_integrity_cache" npm view "hermes-agent@${HERMES_SEMVER}" dist.integrity); \
+     rm -rf "$npm_integrity_cache"; \
+@@ -498,21 +495,40 @@ WORKDIR /opt/hermes
+ # workspaces disabled; this keeps browser tooling without either UI build tree.
+ # Root npm, Electron, and node-gyp caches are build-only. Remove them in the
+ # same RUN that creates them so Docker cannot retain their bytes in this layer.
+-# Hermes ships a `.python-version` for Python 3.11. Use the reviewed system
+-# Python 3.13 directly and forbid a root-private uv-managed interpreter so the
+-# finished virtual environment remains executable by the sandbox user.
++# hermes v0.23 fork: v0.23 supports only Python 3.14 (.python-version = 3.14),
++# which Debian trixie does not ship. uv installs a managed CPython into the
++# (inside /opt/hermes because the installed NemoClaw Landlock policy only grants /opt/hermes)
++# world-readable /opt/hermes/.python (not root's private ~/.local/share/uv) so
++# the venv stays executable by the sandbox user.
++# hermes v0.23 fork: removed the exact dependency-version assert; `uv sync
++# --frozen` already installs exactly what uv.lock pins (aiohttp 3.14.5,
++# cryptography 50.0.2, mcp 2.3.0, starlette 1.9.0, python-multipart 0.0.32).
++# hermes v0.23 fork: package.json requires node>=26 and .npmrc sets
++# engine-strict=true, but this base ships the reviewed Node 24. The env var
++# overrides the project .npmrc for every npm call in this RUN. The first
++# `npm ci` installs only the root, ui-tui and web workspaces (as upstream
++# scripts/build/node-deps.mjs does), skipping apps/desktop and Electron.
++# install_links=false links the file: workspace deps (@hermes/shared,
++# @hermes/ink) as upstream's Dockerfile does.
++# hermes v0.23 fork: the v0.23 TUI build leaves ui-tui/dist at 0700, hence the chmod a+rX.
++# hermes v0.23 fork: no `uv pip check`; upstream's v0.23.0 uv.lock pins pillow 13.0.0
++# while browser-harness declares pillow==12.3.0, and upstream's own image skips the check.
+ # hadolint ignore=SC2086
+ RUN set -eu; \
++    export npm_config_engine_strict=false npm_config_install_links=false; \
+     set --; \
+     for extra in ${HERMES_UV_EXTRAS}; do \
+         set -- "$@" --extra "$extra"; \
+     done; \
+-    uv sync --python /usr/bin/python3.13 --no-managed-python \
++    UV_PYTHON_INSTALL_DIR=/opt/hermes/.python uv sync \
++        --python "${HERMES_PYTHON_VERSION}" --managed-python \
+         --frozen --no-dev "$@" --no-cache \
+-    && uv pip check --python /opt/hermes/.venv/bin/python \
+-    && /opt/hermes/.venv/bin/python -I -c \
+-        "from importlib.metadata import version; expected = {'agent-client-protocol': '0.9.0', 'aiohttp': '3.14.3', 'cryptography': '50.0.0', 'mcp': '2.0.0', 'pillow': '12.3.0', 'starlette': '1.3.1', 'tornado': '6.5.8'}; actual = {name: version(name) for name in expected}; assert actual == expected, actual" \
++    && chmod -R a+rX /opt/hermes/.python \
++    && test "$(/opt/hermes/.venv/bin/python -I -c 'import platform; print(platform.python_version())')" = "${HERMES_PYTHON_VERSION}" \
++    && uv pip install --python /opt/hermes/.venv/bin/python --no-cache 'pyyaml==6.0.3' \
+     && npm ci --prefer-offline --no-audit --no-fund \
++        --include=dev --include=optional --include-workspace-root=true \
++        --workspace ui-tui --workspace web \
+     && for ui_dir in ui-tui web; do \
+         if [ -f "${ui_dir}/package-lock.json" ]; then \
+             npm ci --prefix "${ui_dir}" --prefer-offline --no-audit --no-fund; \
+@@ -523,15 +539,7 @@ RUN set -eu; \
+             echo "Skipping optional Hermes UI package ${ui_dir}: not covered by a pinned lockfile"; \
+         fi; \
+     done \
+-    && bridge_dir=scripts/whatsapp-bridge \
+-    && if [ -f "${bridge_dir}/package-lock.json" ]; then \
+-        npm ci --prefix "${bridge_dir}" --prefer-offline --no-audit --no-fund; \
+-        node --experimental-test-module-mocks --test "${bridge_dir}/proxy-agent.test.mjs"; \
+-    elif [ -f "${bridge_dir}/package.json" ]; then \
+-        echo "Skipping optional Hermes bridge ${bridge_dir}: package-lock.json not found"; \
+-    else \
+-        echo "Skipping optional Hermes bridge ${bridge_dir}: no package manifest found"; \
+-    fi \
++    && chmod -R a+rX ui-tui/dist hermes_cli/web_dist \
+     && rm -rf node_modules ui-tui/node_modules web/node_modules \
+     && npm ci --omit=dev --workspaces=false --prefer-offline --no-audit --no-fund \
+     && rm -rf \
+@@ -540,127 +548,59 @@ RUN set -eu; \
+         /root/.npm \
+         /root/.cache/electron \
+         /root/.cache/node-gyp \
++        /root/.cache/uv \
+         /tmp/camoufox-* \
+     && ln -sf /opt/hermes/.venv/bin/hermes /usr/local/bin/hermes \
+     && ln -sf /opt/hermes/.venv/bin/hermes-agent /usr/local/bin/hermes-agent \
+     && ln -sf /opt/hermes/.venv/bin/hermes-acp /usr/local/bin/hermes-acp
+ 
+-# python-multipart: FastAPI's multipart/form-data parser. FastAPI imports it
+-# lazily, only when a route declares Form/File/UploadFile, and treats it as an
+-# optional dependency (bare `fastapi` does not require it — only fastapi[standard]
+-# does). The bundled kanban dashboard plugin
+-# (plugins/kanban/dashboard/plugin_api.py) registers a card-attachment upload
+-# route that uses File/Form, so without python-multipart the plugin's API routes
+-# fail to mount ("Form data requires python-multipart to be installed").
+-#
+-# Hermes 0.21.3 resolves 0.0.32, the first stable release that addresses the
+-# reviewed network-reachable GHSA-5rvq-cxj2-64vf CPU denial of service,
+-# GHSA-6jv3-5f52-599m parser differential, and GHSA-v9pg-7xvm-68hf. Keep the
+-# hash-verified install so the final image cannot inherit a stale published
+-# base. Re-review the version and both hashes on every Hermes version bump.
+-# uv creates a phony .git cache marker even with --no-cache. Remove the cache
+-# after the final uv command because the root cache is not used at runtime.
+-# hadolint ignore=DL3059
+-RUN printf '%s\n' \
+-        "python-multipart==0.0.32 \\" \
+-        "    --hash=sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e \\" \
+-        "    --hash=sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23" \
+-        > /tmp/multipart-req.txt \
+-    && uv pip install --python /opt/hermes/.venv/bin/python \
+-        --no-deps --no-cache --require-hashes -r /tmp/multipart-req.txt \
+-    && rm -f /tmp/multipart-req.txt \
+-    && /opt/hermes/.venv/bin/python -c \
+-        "import multipart; assert multipart.__version__ == '0.0.32', multipart.__version__" \
+-    && rm -rf /root/.cache/uv
+-
+-# The offline lazy-package probe runs as the sandbox user. Make the finalized
+-# virtual environment readable before that unprivileged build-time check.
++# hermes v0.23 fork: build the Webapp (the Desktop workspace in a browser tab) as upstream's
++# webapp_build stage does; its private npm workspace skips Electron and lifecycle scripts.
++# Its node-deps check hard-requires Node >= 26, so a build-only Node 26.12.1 (sha256 from Hermes'
++# own pm/lock.json) runs this step and is deleted; the image keeps Debian's Node 24.
++RUN set -eu; \
++    case "$(uname -m)" in \
++        aarch64) node_arch=linux-arm64; node_sha=42aa04922591ee5d4dbc7740d452621acf28508239daa512f5ee8c47ee224fdb ;; \
++        x86_64) node_arch=linux-x64; node_sha=6170b2d474e1c626f43cff3adc118df9fe3b573258a4fc3d850c8dbc6b079bbd ;; \
++        *) echo "ERROR: no reviewed Node 26 build for $(uname -m)" >&2; exit 1 ;; \
++    esac; \
++    python3 -I -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' \
++        "https://nodejs.org/dist/v26.12.1/node-v26.12.1-${node_arch}.tar.xz" /tmp/node26.tar.xz; \
++    printf '%s  /tmp/node26.tar.xz\n' "$node_sha" | sha256sum -c -; \
++    mkdir /tmp/node26 && tar -xJf /tmp/node26.tar.xz -C /tmp/node26 --strip-components=1; \
++    PATH="/tmp/node26/bin:$PATH" npm_config_engine_strict=false npm_config_install_links=false \
++        node apps/desktop/scripts/build-webapp.mjs; \
++    test -s apps/desktop/dist-webapp/index.html; \
++    chmod -R a+rX apps/desktop/dist-webapp; \
++    rm -rf .build /root/.npm /tmp/node26 /tmp/node26.tar.xz
++
++# hermes v0.23 fork: removed the separate hash-pinned python-multipart install;
++# v0.23's `web` extra pins python-multipart==0.0.32 in uv.lock, installed above.
++
++# The sandbox user runs the finalized virtual environment. Make it readable.
+ RUN chmod -R a+rX /opt/hermes/.venv
+ 
+-# Keep official-package compatibility separate from the final image's offline
+-# lazy-installer contract. BuildKit verifies both reviewed PyPI artifacts before
+-# any build command can consume them. Install only those hash-locked wheels into
+-# a temporary durable target without network or dependency resolution, import
+-# them against the base environment, and remove the probe before
+-# publishing the base image.
+-COPY --chmod=0444 agents/hermes/hindsight-client-probe-requirements.txt /tmp/nemoclaw-hindsight-client-probe-requirements.txt
+-ADD --chmod=0444 --checksum=sha256:9fdda176ab50f7cec8d7339c6608c148f0cd9ad7e65d9d76192f2db730bc330a https://files.pythonhosted.org/packages/24/4f/a1d0bc33ef933ecc52e76dc1514163594d25836a5d303c256a61bb61445d/hindsight_client-0.6.1-py3-none-any.whl /tmp/nemoclaw-hindsight-client-artifacts/hindsight_client-0.6.1-py3-none-any.whl
+-ADD --chmod=0444 --checksum=sha256:66d2759d1921838256a05a3f80ad7e724936f083e35be5abb5e16eed6be6dc54 https://files.pythonhosted.org/packages/1a/99/84ba7273339d0f3dfa57901b846489d2e5c2cd731470167757f1935fffbd/aiohttp_retry-2.9.1-py3-none-any.whl /tmp/nemoclaw-hindsight-client-artifacts/aiohttp_retry-2.9.1-py3-none-any.whl
+-RUN --network=none install -d -o sandbox -g sandbox -m 0750 \
+-        /tmp/nemoclaw-hindsight-client-probe \
+-        /tmp/nemoclaw-hindsight-client-cache \
+-    && chmod 0555 /tmp/nemoclaw-hindsight-client-artifacts \
+-    && HOME=/sandbox \
+-        UV_CACHE_DIR=/tmp/nemoclaw-hindsight-client-cache \
+-        UV_NO_CACHE=1 \
+-        /usr/bin/setpriv --reuid=sandbox --regid=sandbox --init-groups -- \
+-        /usr/local/bin/uv pip install \
+-        --python /opt/hermes/.venv/bin/python \
+-        --target /tmp/nemoclaw-hindsight-client-probe \
+-        --no-deps --no-cache --offline --no-index \
+-        --find-links /tmp/nemoclaw-hindsight-client-artifacts \
+-        --require-hashes -r /tmp/nemoclaw-hindsight-client-probe-requirements.txt \
+-    && HERMES_LAZY_INSTALL_TARGET=/tmp/nemoclaw-hindsight-client-probe \
+-        /usr/bin/setpriv --reuid=sandbox --regid=sandbox --init-groups -- \
+-        /opt/hermes/.venv/bin/python -I -c \
+-        "from tools.lazy_deps import activate_durable_lazy_target; activate_durable_lazy_target(); import hindsight_client, importlib.metadata as m; from pathlib import Path; target = Path('/tmp/nemoclaw-hindsight-client-probe').resolve(); assert m.version('hindsight-client') == '0.6.1'; assert m.version('aiohttp-retry') == '2.9.1'; assert Path(hindsight_client.__file__).resolve().is_relative_to(target)" \
+-    && rm -rf \
+-        /tmp/nemoclaw-hindsight-client-artifacts \
+-        /tmp/nemoclaw-hindsight-client-probe \
+-        /tmp/nemoclaw-hindsight-client-cache \
+-        /tmp/nemoclaw-hindsight-client-probe-requirements.txt \
+-        /sandbox/.hermes/lazy-packages \
+-    && install -d -o sandbox -g sandbox -m 0750 /sandbox/.hermes/lazy-packages
++# hermes v0.23 fork: removed the Hindsight lazy-install probe; it imported
++# tools.lazy_deps.activate_durable_lazy_target, which v0.23 no longer has
++# (opt-in dependencies now go through PM).
+ 
++# hermes v0.23 fork: HERMES_NODE makes the TUI launcher use this image's Node
++# (hermes_cli/main_tui_launch.py _tui_node_bin) instead of asking PM to
++# download the Node 26 pinned in pm/lock.json at runtime.
+ ENV PATH="/usr/local/bin:/opt/hermes/.venv/bin:${PATH}" \
+     HERMES_TUI_DIR="/opt/hermes/ui-tui" \
+-    HERMES_WEB_DIST="/opt/hermes/hermes_cli/web_dist"
+-
+-# Hermes 0.21.3 keeps agent-browser outside its root dependency graph. Install
+-# the reviewed lockfile into an immutable root-owned runtime so browser
+-# credentials never cross a sandbox-writable executable boundary.
+-RUN HOME=/sandbox \
+-        /usr/bin/setpriv --reuid=sandbox --regid=sandbox --init-groups -- \
+-        /opt/hermes/.venv/bin/python -c \
+-        'from tools import browser_tool; from tools.browser_tool_install import _find_agent_browser; assert browser_tool.AGENT_BROWSER_NPX_SPEC == "agent-browser@0.26.0"; assert _find_agent_browser() == browser_tool.NPX_AGENT_BROWSER_SENTINEL'
+-RUN install -o root -g root -m 0400 /dev/null \
+-        /tmp/nemoclaw-agent-browser-userconfig \
+-    && install -o root -g root -m 0400 /dev/null \
+-        /tmp/nemoclaw-agent-browser-globalconfig \
+-    && HOME=/root npm_config_cache=/root/.npm \
+-        npm_config_registry=https://registry.npmjs.org/ \
+-        npm_config_userconfig=/tmp/nemoclaw-agent-browser-userconfig \
+-        npm_config_globalconfig=/tmp/nemoclaw-agent-browser-globalconfig \
+-        /usr/local/bin/npm ci \
+-            --prefix /opt/nemoclaw-agent-browser-runtime \
+-            --ignore-scripts --no-audit --no-fund \
+-    && agent_browser_install_version="$( \
+-        /opt/nemoclaw-agent-browser-runtime/node_modules/.bin/agent-browser --version \
+-    )" \
+-    && test "$agent_browser_install_version" = 'agent-browser 0.26.0' \
+-    && chown -R root:root /opt/nemoclaw-agent-browser-runtime \
+-    && chmod -R go-w /opt/nemoclaw-agent-browser-runtime \
+-    && ln -s /opt/nemoclaw-agent-browser-runtime/node_modules/.bin/agent-browser \
+-        /usr/local/bin/agent-browser \
+-    && rm -rf /root/.npm \
+-        /tmp/nemoclaw-agent-browser-userconfig \
+-        /tmp/nemoclaw-agent-browser-globalconfig
+-RUN --network=none agent_browser_version="$( \
+-        /usr/bin/setpriv --reuid=sandbox --regid=sandbox --init-groups -- \
+-            /usr/local/bin/agent-browser --version \
+-    )" \
+-    && test "${agent_browser_version}" = 'agent-browser 0.26.0' \
+-    && test "$(readlink /usr/local/bin/agent-browser)" = \
+-        '/opt/nemoclaw-agent-browser-runtime/node_modules/.bin/agent-browser' \
+-    && ! /usr/bin/setpriv --reuid=sandbox --regid=sandbox --init-groups -- \
+-        /bin/sh -c 'printf unsafe >> /opt/nemoclaw-agent-browser-runtime/node_modules/agent-browser/bin/agent-browser.js' \
+-    && ! /usr/bin/setpriv --reuid=sandbox --regid=sandbox --init-groups -- \
+-        /bin/sh -c 'rm /usr/local/bin/agent-browser' \
+-    && HOME=/sandbox /usr/bin/setpriv --reuid=sandbox --regid=sandbox --init-groups -- \
+-        /opt/hermes/.venv/bin/python -c \
+-        'from tools.browser_tool_install import _find_agent_browser; assert _find_agent_browser() == "/usr/local/bin/agent-browser"'
+-
+-RUN /usr/local/bin/hermes --version \
++    HERMES_WEB_DIST="/opt/hermes/hermes_cli/web_dist" \
++    HERMES_NODE="/usr/local/bin/node"
++
++# hermes v0.23 fork: removed the root-owned agent-browser runtime and its
++# probes; they asserted 0.21.3's browser_tool AGENT_BROWSER_NPX_SPEC contract.
++
++# hermes v0.23 fork: `hermes --version` must report the stamped 0.23.0 and the
++# managed Python 3.14 (it reads /opt/hermes/install-stamp.json).
++RUN hermes_version_output="$(/usr/local/bin/hermes --version)" \
++    && printf '%s\n' "$hermes_version_output" \
++    && case "$hermes_version_output" in *"${HERMES_SEMVER}"*) ;; *) echo "ERROR: hermes --version does not report ${HERMES_SEMVER}" >&2; exit 1 ;; esac \
++    && case "$hermes_version_output" in *"Python: ${HERMES_PYTHON_VERSION}"*) ;; *) echo "ERROR: hermes --version does not report Python ${HERMES_PYTHON_VERSION}" >&2; exit 1 ;; esac \
+     && /usr/local/bin/hermes acp --check \
+     && test -s "${HERMES_TUI_DIR}/dist/entry.js" \
+     && test -s "${HERMES_WEB_DIST}/index.html" \
+@@ -674,9 +614,10 @@ RUN /usr/local/bin/hermes --version \
+         'import mcp; from tools import mcp_tool; assert mcp_tool._ensure_mcp_sdk(), "Hermes MCP client runtime is unavailable"; assert getattr(mcp_tool, "_MCP_AVAILABLE", False), "Hermes MCP client runtime is unavailable"; assert getattr(mcp_tool, "_MCP_HTTP_AVAILABLE", False), "Hermes MCP Streamable HTTP runtime is unavailable"'
+ 
+ # Keep the final base checks in one layer to preserve Docker import headroom.
+-RUN --mount=type=bind,source=agents/hermes/dependency-security-probes.py,target=/usr/local/libexec/nemoclaw-hermes-dependency-security.py \
+-    --mount=type=bind,source=agents/hermes/sharp-security-probes.mts,target=/usr/local/libexec/nemoclaw-hermes-sharp-security.mts \
+-    set -eu; \
++# hermes v0.23 fork: removed dependency-security-probes.py and
++# sharp-security-probes.mts; they probe 0.21.3's patched dependency set and
++# the WhatsApp bridge node_modules, which this image no longer bakes.
++RUN set -eu; \
+     test -r /opt/hermes/.venv/pyvenv.cfg; \
+     su -s /bin/sh sandbox -c '/opt/hermes/.venv/bin/python3 -c "import urllib.request"'; \
+     for build_only_path in /opt/hermes/tests /root/.npm /root/.cache/electron /root/.cache/node-gyp /root/.cache/uv; do \
+@@ -684,6 +625,4 @@ RUN --mount=type=bind,source=agents/hermes/dependency-security-probes.py,target=
+             echo "ERROR: build-only Hermes path leaked into the base image: $build_only_path" >&2; \
+             exit 1; \
+         fi; \
+-    done; \
+-    /opt/hermes/.venv/bin/python /usr/local/libexec/nemoclaw-hermes-dependency-security.py; \
+-    node /usr/local/libexec/nemoclaw-hermes-sharp-security.mts /opt/hermes/scripts/whatsapp-bridge
++    done
+diff --git a/agents/hermes/config/managed-policy.ts b/agents/hermes/config/managed-policy.ts
+index 118715b..e62b5d8 100644
+--- a/agents/hermes/config/managed-policy.ts
++++ b/agents/hermes/config/managed-policy.ts
+@@ -276,6 +276,19 @@ export function buildHermesManagedPolicy(
+     },
+     plugins: {
+       enabled: ["nemoclaw"],
++      // Hermes v0.23: no background catalog checks; sandbox egress blocks them.
++      auto_update_check_hours: 0,
++    },
++    // Hermes v0.23 Webapp (Desktop in a browser tab) on the gateway's loopback listener; the host
++    // reaches it through `openshell forward service ... --target-port 9120`.
++    webapp: {
++      enabled: true,
++      host: "127.0.0.1",
++      port: 9120,
++    },
++    // Hermes v0.23 re-enabled on-demand PyPI installs; the image is sealed.
++    security: {
++      allow_lazy_installs: false,
+     },
+     platform_toolsets: {
+       api_server: buildHermesRemotePlatformToolsets(settings),
+diff --git a/agents/hermes/dependency-security-probes.py b/agents/hermes/dependency-security-probes.py
+index 28481c9..81be922 100644
+--- a/agents/hermes/dependency-security-probes.py
++++ b/agents/hermes/dependency-security-probes.py
+@@ -115,7 +115,7 @@ async def check_socks_tls():
+ 
+ async def main():
+     for name in ("httpx2", "httpcore2"):
+-        assert importlib.metadata.version(name) == "2.12.0", name
++        assert importlib.metadata.version(name) == "2.15.1", name  # hermes v0.23 fork
+     assert streamable_http.httpx2 is httpx2, "MCP loaded a different HTTP stack"
+     await check_decoding()
+     await check_socks_tls()
+diff --git a/agents/hermes/hermes-cli-adapter-v1.json b/agents/hermes/hermes-cli-adapter-v1.json
+index b1bc3dc..3c85691 100644
+--- a/agents/hermes/hermes-cli-adapter-v1.json
++++ b/agents/hermes/hermes-cli-adapter-v1.json
+@@ -1,6 +1,6 @@
+ {
+   "adapter_version": 1,
+-  "upstream_cli_version": "0.21.3",
++  "upstream_cli_version": "0.23.0",
+   "managed_commands": ["chat"],
+   "session_name_coalescer": {
+     "module": "hermes_cli.main",
+diff --git a/agents/hermes/image-build-probes.py b/agents/hermes/image-build-probes.py
+index 54ff0ad..795ad62 100644
+--- a/agents/hermes/image-build-probes.py
++++ b/agents/hermes/image-build-probes.py
+@@ -17,10 +17,10 @@ sys.path.insert(0, "/usr/local/lib/nemoclaw")
+ 
+ 
+ def _run_required_build_command(
+-    label: str, argv: Sequence[str], *, env: Mapping[str, str]
++    label: str, argv: Sequence[str], *, env: Mapping[str, str], ok: frozenset[int] = frozenset({0})
+ ) -> None:
+     result = subprocess.run(argv, env=env, check=False)
+-    if result.returncode != 0:
++    if result.returncode not in ok:
+         raise RuntimeError(f"{label} exited with status {result.returncode}")
+ 
+ 
+@@ -36,7 +36,10 @@ def prepare_generated_config(
+     child_env = dict(os.environ if env is None else env)
+     child_env["HERMES_HOME"] = str(hermes_home)
+     _run_required_build_command(
+-        "Hermes doctor", [str(hermes), "doctor", "--fix"], env=child_env
++        "Hermes doctor", [str(hermes), "doctor", "--fix"], env=child_env,
++        # hermes v0.23 fork: doctor exits 1 whenever a manual item remains (API keys,
++        # ~/.local/bin on PATH), which is expected at build time; 2+ is still fatal.
++        ok=frozenset({0, 1}),
+     )
+     _run_required_build_command(
+         "Hermes config generator",
+@@ -391,7 +394,8 @@ def verify_session_delete() -> None:
+ 
+ 
+ _SESSION_STATE_PROBE_ID = "nemoclaw-cross-uid-session-probe"
+-_SESSION_STATE_DIRECTORY = Path("/sandbox/.hermes/runtime")
++# hermes v0.23 fork: v0.23 requires state.db to resolve directly inside HERMES_HOME.
++_SESSION_STATE_DIRECTORY = Path("/sandbox/.hermes")
+ _SESSION_STATE_SIDECAR_NAMES = ("state.db-wal", "state.db-shm")
+ 
+ 
+@@ -495,7 +499,7 @@ def verify_agent_home(*, hermes_home: Path = Path("/sandbox/.hermes")) -> None:
+     from tools import bot_mode_dm
+ 
+     ledger = (hermes_home / "state.db").resolve()
+-    assert ledger == hermes_home / "runtime" / "state.db", ledger
++    assert ledger == hermes_home / "state.db", ledger  # hermes v0.23 fork: no runtime/ link
+     profile_ledger = hermes_home / "profiles" / "agent-home-probe" / "state.db"
+     for db_path, expected in ((ledger, hermes_home), (profile_ledger, profile_ledger.parent)):
+         agent = SimpleNamespace(_session_db=SimpleNamespace(db_path=db_path))
+@@ -752,7 +756,7 @@ def verify_googlechat_override_seams(
+     """
+     source = path.read_text(encoding="utf-8")
+     expected = {
+-        "def _validate_config(self) -> Tuple[str, Optional[str]]:": 1,
++        "def _validate_config(self) -> tuple[str, Optional[str]]:": 1,  # hermes v0.23 fork: builtin tuple
+         "def _load_sa_credentials(self) -> Any:": 1,
+         "def _new_authed_http(self) -> Any:": 1,
+         "async def connect(self, *, is_reconnect: bool = False) -> bool:": 1,
+diff --git a/agents/hermes/install-switchyard.py b/agents/hermes/install-switchyard.py
+index c451e39..7106e9e 100644
+--- a/agents/hermes/install-switchyard.py
++++ b/agents/hermes/install-switchyard.py
+@@ -90,7 +90,9 @@ def validate_bundle(files, release):
+ 
+ def install(archive, destination, architecture, hermes_version, relay_version):
+     require(architecture in RELEASES, "unsupported Switchyard architecture")
+-    require((hermes_version, relay_version) == ("0.21.3", "0.8.3"),
++    # hermes v0.23 fork: v0.23.0 reports 0.0.0 in package metadata (real version in
++    # install-stamp.json) and ships nemo-relay 0.11.0, inside the plugin's >=0.8,<1.0 range.
++    require((hermes_version, relay_version) in {("0.21.3", "0.8.3"), ("0.0.0", "0.11.0")},
+             "Switchyard requires the reviewed Hermes 0.21.3 / Relay 0.8.3 pair")
+     release = RELEASES[architecture]
+     files = read_bundle(archive, release)
+diff --git a/agents/hermes/patch-hermes-sqlite-temp-store.py b/agents/hermes/patch-hermes-sqlite-temp-store.py
+index ca172d2..4c9a385 100755
+--- a/agents/hermes/patch-hermes-sqlite-temp-store.py
++++ b/agents/hermes/patch-hermes-sqlite-temp-store.py
+@@ -49,6 +49,9 @@ def _nemoclaw_normalize_shared_state_permissions(db_path: Path) -> None:
+     """Keep only NemoClaw's fixed cross-UID session ledger group-writable."""
+     if Path(db_path) != _NEMOCLAW_SHARED_STATE_LINK:
+         return
++    # hermes v0.23 fork: state.db is a regular file in HERMES_HOME (same-UID OpenShell runtime).
++    if not os.path.islink(_NEMOCLAW_SHARED_STATE_LINK):
++        return
+     link_metadata = os.lstat(_NEMOCLAW_SHARED_STATE_LINK)
+     if (
+         not stat.S_ISLNK(link_metadata.st_mode)
+diff --git a/scripts/checks/download-hermes-source-archive.sh b/scripts/checks/download-hermes-source-archive.sh
+index a16877e..a776de2 100755
+--- a/scripts/checks/download-hermes-source-archive.sh
++++ b/scripts/checks/download-hermes-source-archive.sh
+@@ -8,11 +8,13 @@ version="${1:-}"
+ output="${2:-}"
+ max_attempts=3
+ retry_delays=(60 120)
++# hermes v0.23 fork: the v0.23.0 tarball is ~90 MB, so --max-time is 900 s (was 120).
+ url="https://github.com/NousResearch/hermes-agent/archive/refs/tags/${version}.tar.gz"
+ partial="${output}.partial"
+ curl_error="${output}.curl-error"
+ 
+-if [[ ! "$version" =~ ^v[0-9]{4}[.][0-9]+[.][0-9]+$ ]]; then
++# hermes v0.23 fork: accept semver tags (v0.23.0) as well as legacy calver (v2026.9.14).
++if [[ ! "$version" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]; then
+   echo "Hermes archive download outcome=failed-no-retry attempt=0/${max_attempts} failure=invalid-version" >&2
+   exit 2
+ fi
+@@ -39,7 +41,7 @@ for ((attempt = 1; attempt <= max_attempts; attempt += 1)); do
+     --proto-redir '=https' \
+     --tlsv1.2 \
+     --connect-timeout 15 \
+-    --max-time 120 \
++    --max-time 900 \
+     --output "$partial" \
+     --write-out '%{http_code}' \
+     "$url" 2>"$curl_error")"; then

@@ -1,0 +1,8 @@
+name: reglas_codigo
+version: "0.1.0"
+description: "Barandillas para trabajo en proyectos de código: exige la suite completa antes de la primera edición, manda a aprobación los borrados por otra vía (rmtree, os.unlink, find -delete) y revisa restos al cerrar el turno."
+author: "openshell-hermes (laboratorio)"
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+  - pre_verify

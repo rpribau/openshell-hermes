@@ -1,0 +1,33 @@
+# Provider profile de OpenShell: NVIDIA API (build.nvidia.com) para Hermes Agent.
+# Basado en providers/nvidia.yaml del repo NVIDIA/OpenShell, con ID propio.
+#
+# - NVIDIA_API_KEY dentro del sandbox es un placeholder opaco; la key real solo
+#   se inyecta como Bearer hacia integrate.api.nvidia.com.
+# - binaries: Hermes es Python (python:3.12-slim -> /usr/local/bin/python3.12).
+#   curl queda para pruebas rápidas. Si cambias la imagen base, ajusta rutas.
+
+id: nvidia-hermes
+display_name: NVIDIA API para Hermes
+description: integrate.api.nvidia.com para Hermes Agent dentro de OpenShell
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    description: NVIDIA API key (nvapi-...)
+    env_vars: [NVIDIA_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+discovery:
+  credentials: [api_key]
+endpoints:
+  - host: integrate.api.nvidia.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries:
+  - /usr/local/bin/python3
+  - /usr/local/bin/python3.*
+  - /usr/bin/curl
+  - /usr/local/bin/curl
