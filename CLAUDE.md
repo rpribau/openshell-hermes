@@ -3,7 +3,7 @@
 Laboratorio para aprender a correr **Hermes Agent** (Nous Research) dentro de **NVIDIA OpenShell**
 usando el blueprint oficial **NemoClaw for Hermes Agent**, en una Mac Apple Silicon con Colima.
 El usuario escribe en español; responde en español. Repo git (desde 2026-11-09) pensado para subirse a GitHub:
-`instalar.sh` recrea todo en otra Mac (ver `README.md`). Lo que el `.gitignore` deja fuera (fork, `hermes/backup/`,
+`instalar.sh` recrea todo en otra Mac o en Ubuntu 22.04 (ver `README.md`; la máquina destino es Ubuntu 22.04). Lo que el `.gitignore` deja fuera (fork, `hermes/backup/`,
 `revisor/`, `pruebas/inyeccion|revisor/`, binarios de `legacy/`, `.env`) solo existe en la Mac original.
 
 Guía paso a paso para humanos: `GUIA-NEMOCLAW-HERMES.md` (instalación, Policy Advisor, revisor, skills).
@@ -31,7 +31,7 @@ Desde 2026-11-07 se trabaja en **`hermes-v023`** (sandbox por defecto de NemoCla
 ## Estructura
 
 ```
-instalar.sh               instalación completa e idempotente en otra Mac (pasos 1-13; ver README.md)
+instalar.sh               elige instalar-mac.sh o instalar-ubuntu.sh (pasos 1-2 de cada sistema) + lib/comun.sh (3-13); ver README.md
 README.md                 qué hace el repo, cómo instalar, qué no hacer
 fork/                     hermes-v023.patch (git diff del fork) + Dockerfile.hermes-v023; instalar.sh recrea el fork
 nemoclaw-hermes-v023/     fork de NemoClaw 0.0.141 (rama hermes-v0.23.0) que construye Hermes v0.23.0; NO va al repo
@@ -271,4 +271,8 @@ propuesta no cuente. Mantener esas pruebas al tocar la lógica.
   Webapp tras recrear: `hermes webapp` falló "/sandbox/.hermes has mode 3770, writable by another user" (el Dockerfile del
   fork pone 3770 y el grupo `sandbox` tiene miembros `gateway,root` + usuario `gateway` con gid 999 →
   `gateway_runtime_discovery.home_mode_unsafe`). Todo corre como `sandbox`, así que `chmod g-w /sandbox/.hermes` (→3750).
+- Instalador Ubuntu (2026-11-09): probado en contenedor ubuntu:22.04 (paso 1 real con apt, paso 4 real: clon + parche en
+  Linux = mismo árbol, paso 2 con stubs, todo el awk con mawk). gateway de OpenShell 0.0.116 (único binario gnu; CLI y
+  sandbox son musl) corre en 22.04 (pide glibc 2.28). Fork sin nada atado a arm64 (Node por `uname -m`, Python por uv,
+  wheels/switchyard por TARGETARCH). Sin probar: instalación completa desde cero y la imagen base en x86_64.
 - Middleware de contenido (OpenShell `examples/supervisor-middleware-content-guard`, research preview).

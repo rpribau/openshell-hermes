@@ -21,8 +21,10 @@ La CLI es `nemoclaw`; **`nemohermes`** es la misma CLI con Hermes preseleccionad
 
 ## Instalación automática en otra Mac
 
-`bash instalar.sh` deja una Mac nueva igual que la del laboratorio (sandbox `hermes-v023` del fork v0.23, SOUL,
-AGENTS, skills, plugin, red, context7, Webapp y batería). Ver `README.md`. Los pasos de abajo explican lo que hace
+`bash instalar.sh` deja otra máquina igual que la del laboratorio (sandbox `hermes-v023` del fork v0.23, SOUL,
+AGENTS, skills, plugin, red, context7, Webapp y batería): llama a `instalar-mac.sh` (Apple Silicon + Colima) o a
+`instalar-ubuntu.sh` (Ubuntu 22.04 + Docker Engine); los pasos 3-13 son comunes (`lib/comun.sh`). Ver `README.md`.
+En Ubuntu: córrelo con tu usuario; usa `sudo` para apt y Docker, y te mete en el grupo `docker` (impacto de root). Los pasos de abajo explican lo que hace
 y cómo se llegó a cada decisión; el sandbox `my-hermes` de los primeros pasos ya no se crea.
 
 ### Lecciones de la caída del 2026-11-09 (ya incorporadas en `instalar.sh`)
